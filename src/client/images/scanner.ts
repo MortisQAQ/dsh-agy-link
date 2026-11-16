@@ -103,7 +103,8 @@ function sidebarRightOf(ctx: unknown): OpenableSidebar | undefined {
  */
 function canPreviewFiles(ctx: unknown): boolean {
   const tabs = service<{ get?: (id: string) => unknown }>(ctx, 'sidebarRightTabs')
-  return tabs?.get?.(DOCUMENT_PREVIEW_TAB) !== undefined && tabs?.get?.(DOCUMENT_PREVIEW_TAB) !== null
+const DOCUMENT_PREVIEW_TABS = ["text", DOCUMENT_PREVIEW_TAB]
+  return DOCUMENT_PREVIEW_TABS.some(tabKind => tabs?.get?.(tabKind) !== undefined && tabs?.get?.(tabKind) !== null)
 }
 
 function mountedSessionId(sidebarRight: SidebarRightLike): string {

@@ -10,11 +10,194 @@
 // Moved out of src/host/adapter.ts unchanged; the adapter keeps its public
 // effort methods as one-line delegates.
 
+import { sameModelId }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+ from './mapper/model-id.js'
+import { REASONING_EFFORTS, normalizeEfforts }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+ from '../common/reasoning.js'
+
 /** Same-model comparison that ignores a provider prefix and case. */
 export function sameModelId(a: string, b: string): boolean {
   const norm = (s: string): string => s.trim().toLowerCase().replace(/^.*\//, '')
   return norm(a) === norm(b) && norm(a) !== ''
 }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
 
 /**
  * agy refuses the WHOLE invocation when `--effort` is passed to a model that
@@ -34,8 +217,128 @@ export function parseEffortUnsupported(text: string): string | null {
     const model = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
     if (model !== null && model[1] !== undefined && model[1] !== '') return model[1]
   }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
   return null
 }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
 
 /**
  * Detect when agy refuses a model because the current active account/settings
@@ -51,6 +354,66 @@ export function parseModelNotRecognized(text: string): string | null {
     ?? text.match(/model\s+["']?([^\s"':]+)["']?\s+is not recognized as a known model/i)
   return m && m[1] ? m[1] : null
 }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
 
 /**
  * In-memory effort-refusal cache, seeded once from the host's persisted list
@@ -68,10 +431,130 @@ export class EffortPolicy {
     private readonly onLearned?: (model: string) => void,
   ) {}
 
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
+
   /** Models currently known to reject `--effort` (persisted seed + learned). */
   unsupportedModels(): string[] {
     return [...this.models()]
   }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
 
   /** True when `--effort` must not be passed to this model. */
   isUnsupported(model: string): boolean {
@@ -79,8 +562,128 @@ export class EffortPolicy {
     for (const known of this.models()) {
       if (sameModelId(known, model)) return true
     }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
     return false
   }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
 
   /** Learn a refusal: remember it, tell the host to persist + refresh the picker. */
   learn(model: string): void {
@@ -95,10 +698,190 @@ export class EffortPolicy {
     )
     try {
       this.onLearned?.(model)
-    } catch {
+    }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+ catch {
       // Persistence is best-effort: the in-process learning already unblocks it.
     }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
   }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
 
   private models(): Set<string> {
     const raw = this.seed() ?? []
@@ -111,6 +894,185 @@ export class EffortPolicy {
       this.seedKey = key
       this.cache = new Set([...seeded, ...this.learned])
     }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
     return this.cache
   }
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
+}
+
+}
+
+export function parseThinkingLevelUnsupported(text: string): { level: string; model?: string } | null {
+  if (text === '' || (!/THINKING_LEVEL_/i.test(text) && !/thinking level/i.test(text))) return null
+  const named = text.match(/THINKING_LEVEL_([A-Z_]+)/)
+  const namedLevel = named !== null && named[1] !== undefined ? named[1].trim().toLowerCase() : ''
+  const plain = text.match(/thinking level\s+"?([a-z]+)"?\s+(?:is\s+)?(?:not supported|unsupported)/i)
+  const plainLevel = plain !== null && plain[1] !== undefined ? plain[1].trim().toLowerCase() : ''
+  const noEffort = text.match(/(?:has no|does not support|doesn't support)\s+"?([a-z]+)"?\s+effort/i)
+  const noEffortLevel = noEffort !== null && noEffort[1] !== undefined ? noEffort[1].trim().toLowerCase() : ''
+  const level = namedLevel !== '' ? namedLevel : plainLevel !== '' ? plainLevel : noEffortLevel
+  if (level === '' || !(REASONING_EFFORTS as readonly string[]).includes(level)) return null
+  const modelMatch = text.match(/--model\s+"?([A-Za-z0-9._:\/-]+)"?/i)
+  const model = modelMatch !== null && modelMatch[1] !== undefined ? modelMatch[1].trim() : ''
+  return model === '' ? { level } : { level, model }
+}
+
+const refusedEffortLevels = new Map<string, Set<string>>()
+
+function effortLevelModelKey(model: string): string {
+  return typeof model === 'string' ? model.trim().toLowerCase().replace(/^.*\//, '') : ''
+}
+
+export function isEffortLevelRefused(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  if (key === '') return false
+  const set = refusedEffortLevels.get(key)
+  return set !== undefined && set.has(typeof level === 'string' ? level.trim().toLowerCase() : '')
+}
+
+export function rememberRefusedEffortLevel(model: string, level: string): boolean {
+  const key = effortLevelModelKey(model)
+  const id = typeof level === 'string' ? level.trim().toLowerCase() : ''
+  if (key === '' || id === '' || !(REASONING_EFFORTS as readonly string[]).includes(id)) return false
+  const set = refusedEffortLevels.get(key) ?? new Set<string>()
+  const isNew = !set.has(id)
+  set.add(id)
+  refusedEffortLevels.set(key, set)
+  return isNew
+}
+
+export function refusedEffortLevelsFor(model: string): string[] {
+  const set = refusedEffortLevels.get(effortLevelModelKey(model))
+  return set === undefined ? [] : (REASONING_EFFORTS as readonly string[]).filter((e) => set.has(e))
+}
+
+export function effectiveEffortLevel(
+  model: string,
+  efforts: string[] | null,
+  preferred: string | undefined,
+  defaultEffort: string,
+): string | undefined {
+  const usable = normalizeEfforts(efforts ?? []).filter((e) => !isEffortLevelRefused(model, e))
+  if (usable.length === 0) return undefined
+  const wanted = typeof preferred === 'string' ? preferred.trim().toLowerCase() : ''
+  if (wanted !== '' && usable.includes(wanted)) return wanted
+  const fallback = typeof defaultEffort === 'string' ? defaultEffort.trim().toLowerCase() : ''
+  if (fallback !== '' && usable.includes(fallback)) return fallback
+  return usable[usable.length - 1]
 }
